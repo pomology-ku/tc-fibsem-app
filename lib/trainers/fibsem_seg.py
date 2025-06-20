@@ -11,8 +11,13 @@ from torch.cuda.amp import GradScaler, autocast             # ↳ AMP optional
 from ignite.engine import Events
 from monai.data import DataLoader, CacheDataset, partition_dataset, pad_list_data_collate
 from monai.transforms import (
-    Compose, LoadImaged, EnsureChannelFirstd, RandAxisFlipd, RandRotate90d,
-    RandGaussianNoised, ScaleIntensityd, Activationsd, AsDiscreted,
+    Compose, LoadImaged, EnsureChannelFirstd,
+    RandCropByPosNegLabeld,
+    Rand2DElasticd, RandAffined, RandZoomd,
+    RandGaussianNoised, RandShiftIntensityd,
+    RandAxisFlipd, RandRotate90d,
+    ScaleIntensityd, EnsureTyped,
+    Activationsd, AsDiscreted,
 )
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss
@@ -78,17 +83,60 @@ class FibsemSegTrain(TrainTask):
         base = [
             LoadImaged(keys=("image", "label")),
             EnsureChannelFirstd(keys=("image", "label")),
-            SelectSliceByKeyd(keys=("label", "image")),
-            #ExtractValidSlicesd(keys=("label", "image")),
+            SelectSliceByKeyd(keys=("label", "image")),  # ← slice 抽出
+            EnsureTyped(keys=("image", "label")),
         ]
         train_tf = base + [
+
+            # ① まず "前景(>0) を必ず含む" Patch を 1枚 抽出
+            #    ここで size を UNet の ROI サイズ (例: 256×256) に合わせる
+            RandCropByPosNegLabeld(
+                keys=("image", "label"),
+                label_key="label",
+                spatial_size=(256, 256),
+                pos=1, neg=0,           # 前景を必ず含む patch を 1つ
+                num_samples=4,
+            ),
+
+            # ② 幾何学変換（順序：Crop → 変換 が定石）
+            RandAffined(
+                keys=("image", "label"),
+                rotate_range=None,
+                scale_range=(0.1, 0.1),         # ±10% 拡大縮小
+                shear_range=(0.1, 0.1),
+                prob=0.3,
+            ),
+            Rand2DElasticd(                      # 弾性変形
+                keys=("image", "label"),
+                spacing=(64, 64),
+                magnitude_range=(2, 4),
+                prob=0.2,
+            ),
+            RandZoomd(
+                keys=("image", "label"),
+                min_zoom=0.9, max_zoom=1.1,
+                prob=0.2,
+            ),
             RandAxisFlipd(keys=("image", "label"), prob=0.5),
             RandRotate90d(keys=("image", "label"), prob=0.5),
+
+            # ③ intensity 系
+            RandShiftIntensityd(keys="image", offsets=0.1, prob=0.5),
             RandGaussianNoised(keys="image", prob=0.5, std=0.05),
+
+            # ④ 正規化
             ScaleIntensityd(keys="image"),
         ]
         val_tf = base + [
-            ScaleIntensityd(keys="image")
+            # 前景 patch 抽出だけ行う（同じ ROI サイズで推論）
+            RandCropByPosNegLabeld(
+                keys=("image", "label"),
+                label_key="label",
+                spatial_size=(256, 256),
+                pos=1, neg=0,
+                num_samples=16,
+            ),
+            ScaleIntensityd(keys="image"),
         ]
 
         # ---------------- Dataset / Loader ---------------- #
