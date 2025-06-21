@@ -80,7 +80,7 @@ class FibsemSegInfer(InferTask):
         # ---------- ネットワーク ----------
         self.network = UNet(
             spatial_dims=2,
-            in_channels=1,
+            in_channels=3, # 2.5D
             out_channels=3,
             channels=(16, 32, 64, 128, 256),
             strides=(2, 2, 2, 2),

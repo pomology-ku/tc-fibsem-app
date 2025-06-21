@@ -19,6 +19,7 @@ from monai.transforms import (
     RandAxisFlipd, RandRotate90d,
     ScaleIntensityd, EnsureTyped,
     Activationsd, AsDiscreted,
+    SaveImaged,
 )
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss, HausdorffDTLoss
@@ -29,9 +30,7 @@ from monai.handlers import (
 
 from monailabel.interfaces.datastore import Datastore
 from monailabel.interfaces.tasks.train import TrainTask         # ← MONAI-Label 抽象基底
-from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd
-from ignite.metrics import Loss as LossMetric 
-import torch.nn.functional as F
+from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd, StackNeighborSlicesd
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,7 @@ class FibsemSegTrain(TrainTask):
         self,
         app_dir: str,
         description: str = "2D-UNet trainer for tc-fibsem-seg",
-        in_channels: int = 1,
+        in_channels: int = 3, # 2.5D
         out_channels: int = 3,
         spatial_size: Optional[Sequence[int]] = None,
     ):
@@ -85,10 +84,17 @@ class FibsemSegTrain(TrainTask):
         # ---------------- Transforms ---------------- #
         base = [
             LoadImaged(keys=("image", "label")),
-            EnsureChannelFirstd(keys=("image", "label")),
-            SelectSliceByKeyd(keys=("label", "image")),  # ← slice 抽出
             EnsureTyped(keys=("image", "label")),
+
+            StackNeighborSlicesd(keys="image", k=1),   # image: (3,H,W)
+            SelectSliceByKeyd(keys="label"),           # ← label だけ 2D へ
+
+            EnsureChannelFirstd(keys="label", channel_dim="no_channel"),
+            EnsureChannelFirstd(keys="image", channel_dim=0, strict_check=False),
         ]
+
+        #PATCH_DEBUG_DIR = os.path.join(self.app_dir, "debug")
+        
         train_tf = base + [
 
             # ① まず "前景(>0) を必ず含む" Patch を 1枚 抽出
@@ -100,6 +106,15 @@ class FibsemSegTrain(TrainTask):
                 pos=1, neg=0,           # 前景を必ず含む patch を 1つ
                 num_samples=4,
             ),
+
+            # SaveImaged(
+            #     keys="image",                        # 画像だけでOK。ラベルも見たいなら ("image","label")
+            #     output_dir=PATCH_DEBUG_DIR,
+            #     output_postfix="patch",              # ファイル名: <原画像名>_patch.nii.gz など
+            #     output_ext=".png",                  # ".png", ".nii.gz" なども可
+            #     resample=False,                      # クロップなのでリサンプル不要
+            #     separate_folder=False,               # 1 ディレクトリにまとめる
+            # ),
 
             # ② 幾何学変換（順序：Crop → 変換 が定石）
             RandAffined(
@@ -142,9 +157,15 @@ class FibsemSegTrain(TrainTask):
             ScaleIntensityd(keys="image"),
         ]
 
+        # dbg_ds = CacheDataset(train_list, Compose(train_tf),
+        #               cache_rate=0.0, num_workers=0)  # ★ workers=0
+        # for i, patches in enumerate(dbg_ds[:3]):          # 3スライス分
+        #     for j, p in enumerate(patches):
+        #         print(f"[DBG] {i}.{j}  image {p['image'].shape}  label {p['label'].shape}")
+
         # ---------------- Dataset / Loader ---------------- #
-        train_ds = CacheDataset(train_list, Compose(train_tf), num_workers=num_workers, cache_rate=1.0)
-        val_ds   = CacheDataset(val_list,   Compose(val_tf),   num_workers=num_workers, cache_rate=1.0)
+        train_ds = CacheDataset(train_list, Compose(train_tf), num_workers=num_workers, cache_rate=0.1)
+        val_ds   = CacheDataset(val_list,   Compose(val_tf),   num_workers=num_workers, cache_rate=0.1)
 
         train_loader = DataLoader(train_ds, batch_size=batch_size,
                                   shuffle=True, num_workers=num_workers, pin_memory=torch.cuda.is_available(), collate_fn=pad_list_data_collate)
@@ -169,7 +190,7 @@ class FibsemSegTrain(TrainTask):
 
         def total_loss(pred, tgt):
             #hd = haus(pred, tgt) / PATCH_DIAG_SQ
-            return dice(pred, tgt) + 0.5 * haus(pred, tgt)
+            return dice(pred, tgt) + 0.5 * haus_norm(pred, tgt)
         
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
@@ -284,6 +305,8 @@ def _make_datalist(store: Datastore,
 
         img_tiff, lbl_tiff = it["image"], it["label"]
         lbl_vol = tiff.imread(lbl_tiff)              # (Z,Y,X)
+        # print(f"shape: {lbl_vol.shape}")
+        
 
         valid_z = _vol_valid_z(lbl_vol)
         if not valid_z:
