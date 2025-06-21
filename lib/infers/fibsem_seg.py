@@ -33,15 +33,6 @@ from monailabel.interfaces.tasks.infer_v2 import InferTask, InferType
 import logging
 logger = logging.getLogger(__name__)
 
-# ----------  ユーティリティ (元の ExtractValidSlicesd と等価なフィルタ) ----------
-def find_labeled_slices(img: np.ndarray) -> Sequence[int]:
-    """img shape: [H,W,S]。値 1/2 を含むスライス index を返す"""
-    labeled = []
-    for z in range(img.shape[-1]):
-        if np.logical_or(img[..., z] == 1, img[..., z] == 2).any():
-            labeled.append(z)
-    return labeled
-
 
 # ----------  InferTask 実装  ----------
 class FibsemSegInfer(InferTask):
@@ -115,9 +106,14 @@ class FibsemSegInfer(InferTask):
             vol = vol[0]
 
         target_z = list(range(vol.shape[0]))
+        Z, H, W = vol.shape
+        samples = []
+        for z in target_z:
+            # 中央 z±1 を取る（端はクランプ）
+            idxs = [max(0, min(Z - 1, z + off)) for off in (-1, 0, 1)]
+            stack = np.stack([vol[i] for i in idxs], axis=0)   # (3, H, W)
+            samples.append({"image": stack, "z": z})           # ← (C=3, H, W)
 
-        # ③ DataLoader を組む
-        samples = [{"image": vol[z][None, ...], "z": z} for z in target_z]  # (1,H,W)
         loader  = DataLoader(Dataset(samples, transform=self.pre_tf),
                              batch_size=1, num_workers=0)
 
