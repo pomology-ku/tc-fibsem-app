@@ -13,8 +13,6 @@ from monailabel.tasks.activelearning.first import First
 # ---- custom tasks -----------------------------------------------------------
 from lib.infers.fibsem_seg import FibsemSegInfer
 from lib.trainers.fibsem_seg import FibsemSegTrain
-from lib.activelearning.last import Last
-from lib.activelearning.highest_uncertainty import HighestUncertainty
 
 LOG = logging.getLogger(__name__)
 
@@ -60,13 +58,7 @@ class MyApp(MONAILabelApp):
         return {
             "random": Random(),
             "first": First(),
-            "last": Last(),
-            "highest_uncertainty": HighestUncertainty(self._infers["tc-fibsem-seg"]),
         }
-
-    def init_scoring_methods(self) -> Dict[str, ScoringMethod]:
-        # not required for this minimal app
-        return {}
 
 
 # -------------------------------------------------------------------------

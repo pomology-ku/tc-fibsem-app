@@ -57,7 +57,7 @@ class FibsemSegInfer(InferTask):
         device: str | torch.device = "cuda",
         roi_size: tuple[int, int] = (256, 256),
         overlap: float = 0.25,
-        ckpt_name: str = "tc-fibsem-seg.pt",
+        ckpt_name: str = "model.pt",
     ):
         super().__init__(
             type=InferType.SEGMENTATION,
@@ -65,10 +65,16 @@ class FibsemSegInfer(InferTask):
             description="FIB-SEM slice-wise 2D-UNet",
             labels={"background": 0, "cell_wall": 1, "tannin_cell": 2},
         )
+        
+        self.id = "tc-fibsem-seg"   
 
         self.device   = torch.device(device)
         self.roi_size = roi_size
         self.overlap  = overlap
+
+        # ---------- 重みファイル ----------
+        ckpt_path = os.path.join(model_dir, ckpt_name)
+        self.path = ckpt_path
 
         # ---------- ネットワーク ----------
         self.network = UNet(
@@ -142,3 +148,12 @@ class FibsemSegInfer(InferTask):
     # MONAI Label から “常に利用可” と見せたい場合
     def is_valid(self) -> bool:
         return True
+    
+    def clear_cache(self):
+        # 重みは保持しつつ、不要なテンソルだけ削除
+        if hasattr(self, "_cache"):
+            self._cache.clear()
+        import torch, gc
+        torch.cuda.empty_cache()
+        gc.collect()
+    

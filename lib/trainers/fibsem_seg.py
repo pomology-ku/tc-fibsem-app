@@ -1,6 +1,7 @@
 # lib/trainers/fibsem_seg.py
 import logging, os, random, json
 from typing import List, Dict, Sequence, Any, Optional
+import shutil, glob
 
 import numpy as np
 import torch
@@ -61,7 +62,7 @@ class FibsemSegTrain(TrainTask):
         `request` には Slicer UI で指定した max_epochs, val_split などが入ってくる。
         """
         # ---------------- ハイパーパラメータ ---------------- #
-        max_epochs   = int(request.get("max_epochs", 20))
+        max_epochs   = int(request.get("max_epochs", 100))
         batch_size   = int(request.get("train_batch_size", 4))
         num_workers  = int(request.get("num_workers", 4))
         lr           = float(request.get("learning_rate", 1e-3))
@@ -159,7 +160,7 @@ class FibsemSegTrain(TrainTask):
         ).to(device)
 
         loss_fn = DiceLoss(
-            include_background=True,
+            include_background=False,
             to_onehot_y=True,
             softmax=True,
         )
@@ -228,7 +229,28 @@ class FibsemSegTrain(TrainTask):
 
         # --------------------- RUN --------------------- #
         trainer.run()
-        return {"status": "finished", "epochs": max_epochs}
+
+        # ① CheckpointSaver が書いた最新モデル (*.pt) を取得
+        ckpt_dir = os.path.join(self.app_dir, "model_checkpoints")
+        best_ckpt = max(
+            glob.glob(os.path.join(ckpt_dir, "*.pt")),
+            key=os.path.getmtime,            # 最終更新が新しいもの＝best
+        )
+
+        # ② infer 用ディレクトリへコピー
+        publish_dir = os.path.join(self.app_dir, "model", "tc-fibsem-seg")
+        os.makedirs(publish_dir, exist_ok=True)
+        dst = os.path.join(publish_dir, "model.pt")          # ← infer 側と同じファイル名に
+        shutil.copy2(best_ckpt, dst)
+        logger.info(f"★ Published {best_ckpt}  →  {dst}")
+
+        # ③ MONAI-Label へ戻り値で知らせると UI にも反映される
+        return {
+            "status": "finished",
+            "epochs": max_epochs,
+            "model_path": dst,                # <- key 名は任意だが model_path が慣例
+        }
+    
 
 
 # -------------------------------------------------------------------------
