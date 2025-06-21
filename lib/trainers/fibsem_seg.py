@@ -83,11 +83,13 @@ class FibsemSegTrain(TrainTask):
 
         # ---------------- Transforms ---------------- #
         base = [
-            LoadImaged(keys=("image", "label")),
-            EnsureTyped(keys=("image", "label")),
+            # LoadImaged(keys=("image", "label")),
+            # EnsureTyped(keys=("image", "label")),
 
             StackNeighborSlicesd(keys="image", k=1),   # image: (3,H,W)
             SelectSliceByKeyd(keys="label"),           # ← label だけ 2D へ
+
+            EnsureTyped(keys=("image", "label")),
 
             EnsureChannelFirstd(keys="label", channel_dim="no_channel"),
             EnsureChannelFirstd(keys="image", channel_dim=0, strict_check=False),
@@ -164,8 +166,8 @@ class FibsemSegTrain(TrainTask):
         #         print(f"[DBG] {i}.{j}  image {p['image'].shape}  label {p['label'].shape}")
 
         # ---------------- Dataset / Loader ---------------- #
-        train_ds = CacheDataset(train_list, Compose(train_tf), num_workers=num_workers, cache_rate=0.1)
-        val_ds   = CacheDataset(val_list,   Compose(val_tf),   num_workers=num_workers, cache_rate=0.1)
+        train_ds = CacheDataset(train_list, Compose(train_tf), num_workers=num_workers, cache_rate=1.0)
+        val_ds   = CacheDataset(val_list,   Compose(val_tf),   num_workers=num_workers, cache_rate=1.0)
 
         train_loader = DataLoader(train_ds, batch_size=batch_size,
                                   shuffle=True, num_workers=num_workers, pin_memory=torch.cuda.is_available(), collate_fn=pad_list_data_collate)
