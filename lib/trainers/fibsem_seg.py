@@ -21,7 +21,7 @@ from monai.transforms import (
     Activationsd, AsDiscreted,
 )
 from monai.networks.nets import UNet
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, HausdorffDTLoss
 from monai.engines import SupervisedTrainer, SupervisedEvaluator
 from monai.handlers import (
     StatsHandler, CheckpointSaver, ValidationHandler, LrScheduleHandler, MeanDice, from_engine
@@ -30,6 +30,8 @@ from monai.handlers import (
 from monailabel.interfaces.datastore import Datastore
 from monailabel.interfaces.tasks.train import TrainTask         # ← MONAI-Label 抽象基底
 from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd
+from ignite.metrics import Loss as LossMetric 
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +137,7 @@ class FibsemSegTrain(TrainTask):
                 label_key="label",
                 spatial_size=(256, 256),
                 pos=1, neg=0,
-                num_samples=16,
+                num_samples=8,
             ),
             ScaleIntensityd(keys="image"),
         ]
@@ -159,11 +161,16 @@ class FibsemSegTrain(TrainTask):
             num_res_units=2,
         ).to(device)
 
-        loss_fn = DiceLoss(
-            include_background=False,
-            to_onehot_y=True,
-            softmax=True,
-        )
+        dice = DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
+        haus = HausdorffDTLoss(include_background=True, to_onehot_y=True, softmax=True, alpha=2.0) 
+
+        PATCH_DIAG_SQ = (256**2 + 256**2)   
+        haus_norm = lambda p, t: haus(p, t) / PATCH_DIAG_SQ
+
+        def total_loss(pred, tgt):
+            #hd = haus(pred, tgt) / PATCH_DIAG_SQ
+            return dice(pred, tgt) + 0.5 * haus(pred, tgt)
+        
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
         # ---------------- Inferer / Post ---------------- #
@@ -181,17 +188,12 @@ class FibsemSegTrain(TrainTask):
             network=net,
             postprocessing=post_trans,
             key_val_metric={
-                "val_mean_dice": MeanDice(
-                    include_background=False,
-                    output_transform=_pred_label
-                )
+                "val_mean_dice": MeanDice(include_background=False, output_transform=_pred_label),
+                #"val_mean_haus": LossMetric(loss_fn=haus_norm, output_transform=_pred_label)
             },
             val_handlers=[
-                StatsHandler(
-                    tag_name="val_mean_dice",
-                    output_transform=lambda *_: None,                   # ここはログだけなので None 返しで OK
-                    global_epoch_transform=lambda epoch: epoch
-                )
+                StatsHandler(tag_name="val_mean_dice"),
+                #StatsHandler(tag_name="val_mean_haus"),
             ],
         )
 
@@ -200,7 +202,7 @@ class FibsemSegTrain(TrainTask):
             device=device,
             train_data_loader=train_loader,
             network=net,
-            loss_function=loss_fn,
+            loss_function=total_loss,
             optimizer=optimizer,
         )
 

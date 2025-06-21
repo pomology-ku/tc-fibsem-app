@@ -53,6 +53,7 @@ class FibsemSegInfer(InferTask):
 
     def __init__(
         self,
+        studies: str,
         model_dir: str,
         device: str | torch.device = "cuda",
         roi_size: tuple[int, int] = (256, 256),
@@ -65,7 +66,7 @@ class FibsemSegInfer(InferTask):
             description="FIB-SEM slice-wise 2D-UNet",
             labels={"background": 0, "cell_wall": 1, "tannin_cell": 2},
         )
-        
+        self.studies = studies
         self.id = "tc-fibsem-seg"   
 
         self.device   = torch.device(device)
@@ -106,7 +107,7 @@ class FibsemSegInfer(InferTask):
 
     # ------------------------------------------------------------------ #
     def __call__(self, data: Dict[str, Any], *args, **kwargs) -> Dict[str, Any]:
-        img_path: str = data["image"]
+        img_path = Path(data["image"]) 
 
         # ① TIFF 読み込み (Z,Y,X)
         vol = tiff.imread(img_path)
@@ -132,10 +133,9 @@ class FibsemSegInfer(InferTask):
                 )
                 pred = torch.argmax(logits, dim=1)[0].cpu().numpy().astype(np.uint8)
                 pred_vol[z] = pred                          # Z へ書き戻し
-
-        # ⑤ SimpleITK で保存 (Z,Y,X → Sitk が Z,Y,X と読むので axis そのまま)
-        tmpdir   = tempfile.mkdtemp(prefix="monailabel_")
-        out_file = os.path.join(tmpdir, Path(img_path).stem + "_pred.nrrd")
+        
+        out_file = Path(self.studies) / f"{img_path.stem}_pred.nrrd"
+        logger.info(f"[FibsemSegInfer] saving prediction to {out_file}")
         sitk_img = sitk.GetImageFromArray(pred_vol)         # axis0=Z
         sitk.WriteImage(sitk_img, out_file)
 

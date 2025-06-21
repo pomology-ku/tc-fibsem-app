@@ -42,6 +42,7 @@ class MyApp(MONAILabelApp):
     def init_infers(self) -> dict[str, InferTask]:
         return {
             "tc-fibsem-seg": FibsemSegInfer(
+                studies=self.studies,
                 model_dir=os.path.join(self.app_dir, "model", "tc-fibsem-seg"),
                 roi_size=(256, 256),  # 必要なら変更
             )
