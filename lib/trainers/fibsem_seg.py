@@ -19,7 +19,7 @@ from monai.transforms import (
     RandAxisFlipd, RandRotate90d,
     ScaleIntensityd, EnsureTyped,
     Activationsd, AsDiscreted,
-    SaveImaged,
+    SaveImaged, SpatialPadd,
 )
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss, HausdorffDTLoss
@@ -30,7 +30,11 @@ from monai.handlers import (
 
 from monailabel.interfaces.datastore import Datastore
 from monailabel.interfaces.tasks.train import TrainTask         # ← MONAI-Label 抽象基底
+from monai.inferers import sliding_window_inference
 from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd, StackNeighborSlicesd
+
+from monai.utils import set_determinism
+set_determinism(seed=42)
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +68,9 @@ class FibsemSegTrain(TrainTask):
         """
         # ---------------- ハイパーパラメータ ---------------- #
         max_epochs   = int(request.get("max_epochs", 100))
-        batch_size   = int(request.get("train_batch_size", 4))
+        batch_size   = int(request.get("train_batch_size", 8))
         num_workers  = int(request.get("num_workers", 4))
-        lr           = float(request.get("learning_rate", 1e-3))
+        lr           = float(request.get("learning_rate", 3e-4))
         val_split    = float(request.get("val_split", 0.2))
         device       = torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -95,24 +99,31 @@ class FibsemSegTrain(TrainTask):
             EnsureChannelFirstd(keys="image", channel_dim=0, strict_check=False),
         ]
 
-        #PATCH_DEBUG_DIR = os.path.join(self.app_dir, "debug")
+        PATCH_DEBUG_DIR = os.path.join(self.app_dir, "debug")
         
         train_tf = base + [
 
-            # ① まず "前景(>0) を必ず含む" Patch を 1枚 抽出
             #    ここで size を UNet の ROI サイズ (例: 256×256) に合わせる
             RandCropByPosNegLabeld(
                 keys=("image", "label"),
                 label_key="label",
                 spatial_size=(256, 256),
-                pos=1, neg=0,           # 前景を必ず含む patch を 1つ
-                num_samples=4,
+                pos=1, neg=1,           
+                num_samples=32,
             ),
 
             # SaveImaged(
+            #     keys="label",                        # 画像だけでOK。ラベルも見たいなら ("image","label")
+            #     output_dir=PATCH_DEBUG_DIR,
+            #     output_postfix="patch_label",              # ファイル名: <原画像名>_patch.nii.gz など
+            #     output_ext=".png",                  # ".png", ".nii.gz" なども可
+            #     resample=False,                      # クロップなのでリサンプル不要
+            #     separate_folder=False,               # 1 ディレクトリにまとめる
+            # ),
+            # SaveImaged(
             #     keys="image",                        # 画像だけでOK。ラベルも見たいなら ("image","label")
             #     output_dir=PATCH_DEBUG_DIR,
-            #     output_postfix="patch",              # ファイル名: <原画像名>_patch.nii.gz など
+            #     output_postfix="patch_img",              # ファイル名: <原画像名>_patch.nii.gz など
             #     output_ext=".png",                  # ".png", ".nii.gz" なども可
             #     resample=False,                      # クロップなのでリサンプル不要
             #     separate_folder=False,               # 1 ディレクトリにまとめる
@@ -129,7 +140,7 @@ class FibsemSegTrain(TrainTask):
             Rand2DElasticd(                      # 弾性変形
                 keys=("image", "label"),
                 spacing=(64, 64),
-                magnitude_range=(2, 4),
+                magnitude_range=(0.5, 1.5),
                 prob=0.2,
             ),
             RandZoomd(
@@ -148,15 +159,15 @@ class FibsemSegTrain(TrainTask):
             ScaleIntensityd(keys="image"),
         ]
         val_tf = base + [
-            # 前景 patch 抽出だけ行う（同じ ROI サイズで推論）
-            RandCropByPosNegLabeld(
-                keys=("image", "label"),
-                label_key="label",
-                spatial_size=(256, 256),
-                pos=1, neg=0,
-                num_samples=8,
-            ),
+            EnsureTyped(keys=("image", "label")),
             ScaleIntensityd(keys="image"),
+
+            # 入力が 512×512 未満なら pad、超えていればそのまま
+            SpatialPadd(
+                keys=("image", "label"),       # dict 版なので keys が必須
+                spatial_size=(512, 512),
+                method="symmetric",
+            ),
         ]
 
         # dbg_ds = CacheDataset(train_list, Compose(train_tf),
@@ -184,15 +195,7 @@ class FibsemSegTrain(TrainTask):
             num_res_units=2,
         ).to(device)
 
-        dice = DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
-        haus = HausdorffDTLoss(include_background=True, to_onehot_y=True, softmax=True, alpha=2.0) 
-
-        PATCH_DIAG_SQ = (256**2 + 256**2)   
-        haus_norm = lambda p, t: haus(p, t) / PATCH_DIAG_SQ
-
-        def total_loss(pred, tgt):
-            #hd = haus(pred, tgt) / PATCH_DIAG_SQ
-            return dice(pred, tgt) + 0.5 * haus_norm(pred, tgt)
+        dice = DiceLoss(include_background=True, to_onehot_y=True, softmax=True)
         
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
@@ -204,19 +207,26 @@ class FibsemSegTrain(TrainTask):
         ])
 
         # ---------------- Engines ---------------- #
+        def val_inferer(inputs, network):          # ★ network を受け取る
+            return sliding_window_inference(
+                inputs,
+                roi_size=(256, 256),
+                sw_batch_size=4,
+                predictor=network,                 # ←★ ここに渡す
+                overlap=0.5,
+            )
 
         evaluator = SupervisedEvaluator(
             device=device,
             val_data_loader=val_loader,
             network=net,
+            inferer=val_inferer, 
             postprocessing=post_trans,
             key_val_metric={
                 "val_mean_dice": MeanDice(include_background=False, output_transform=_pred_label),
-                #"val_mean_haus": LossMetric(loss_fn=haus_norm, output_transform=_pred_label)
             },
             val_handlers=[
                 StatsHandler(tag_name="val_mean_dice"),
-                #StatsHandler(tag_name="val_mean_haus"),
             ],
         )
 
@@ -225,7 +235,7 @@ class FibsemSegTrain(TrainTask):
             device=device,
             train_data_loader=train_loader,
             network=net,
-            loss_function=total_loss,
+            loss_function=dice,
             optimizer=optimizer,
         )
 
