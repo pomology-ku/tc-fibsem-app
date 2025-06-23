@@ -74,7 +74,7 @@ class FibsemSegTrain(TrainTask):
         num_workers  = int(request.get("num_workers", 4))
         lr           = float(request.get("learning_rate", 1e-4))
         val_split    = float(request.get("val_split", 0.2))
-        device       = device = torch.device("cuda:0") #torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
+        device       = torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
         logger.info(f">>> TRAIN   on {device};  epochs={max_epochs};  batch={batch_size};  val_split={val_split}")
 
