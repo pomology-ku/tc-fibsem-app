@@ -34,6 +34,9 @@ from tqdm.auto import tqdm
 
 from monailabel.interfaces.tasks.infer_v2 import InferTask, InferType
 import logging
+
+import segmentation_models_pytorch as smp
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,19 +71,28 @@ class FibsemSegInfer(InferTask):
         self.roi_size = roi_size
         self.overlap  = overlap
 
+        self.in_channels = 3    # 2.5D入力 (3-slice stack)
+        self.out_channels = len(self.labels) 
+
         # ---------- 重みファイル ----------
         ckpt_path = os.path.join(model_dir, ckpt_name)
         self.path = ckpt_path
 
         # ---------- ネットワーク ----------
-        self.network = UNet(
-            spatial_dims=2,
-            in_channels=3, # 2.5D
-            out_channels=len(self.labels),
-            channels=(16, 32, 64, 128, 256),
-            strides=(2, 2, 2, 2),
-            num_res_units=2,
-        )
+        # self.network = UNet(
+        #     spatial_dims=2,
+        #     in_channels=3, # 2.5D
+        #     out_channels=len(self.labels),
+        #     channels=(16, 32, 64, 128, 256),
+        #     strides=(2, 2, 2, 2),
+        #     num_res_units=2,
+        # )
+        self.network = smp.Unet(
+            encoder_name="resnet18",      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
+            encoder_weights="imagenet",   # 'imagenet' を指定して事前学習済みの重みをロード
+            in_channels=self.in_channels,   
+            classes=self.out_channels,  
+        ).to(device)
         ckpt = os.path.join(model_dir, ckpt_name)
         logger.info(f"[FibsemSegInfer] try load checkpoint: {ckpt}")
 

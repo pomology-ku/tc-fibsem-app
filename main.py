@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Dict
+import torch
 
 from monailabel.interfaces.app import MONAILabelApp
 from monailabel.interfaces.tasks.infer_v2 import InferTask
@@ -9,6 +10,7 @@ from monailabel.interfaces.tasks.scoring import ScoringMethod
 from monailabel.interfaces.tasks.strategy import Strategy
 from monailabel.tasks.activelearning.random import Random
 from monailabel.tasks.activelearning.first import First
+import segmentation_models_pytorch as smp
 
 # ---- custom tasks -----------------------------------------------------------
 from lib.infers.fibsem_seg import FibsemSegInfer
@@ -26,26 +28,40 @@ class MyApp(MONAILabelApp):
     """
 
     def __init__(self, app_dir: str, studies: str, conf: Dict[str, str]):
+        self.name = "tc-fibsem-seg"
+        self.model_dir = os.path.join(app_dir, "model", self.name)
+
+        # モデルがなければこのタイミングで用意しておく
+        model_path = os.path.join(self.model_dir, "model.pt")
+        if not os.path.exists(model_path):
+            LOG.info(f"Model not found at '{model_path}', creating a new one.")
+            os.makedirs(self.model_dir, exist_ok=True)
+            pretrained_model = smp.Unet(
+                encoder_name="resnet18",
+                encoder_weights="imagenet",
+                in_channels=3,
+                classes=2,
+            )
+            torch.save(pretrained_model.state_dict(), model_path)
+            LOG.info(f"Saved initial pretrained model to '{model_path}'")
+
+        # ———— その後で親クラス初期化 ————
         super().__init__(
             app_dir=app_dir,
             studies=studies,
             conf=conf,
-            name="tc-fibsem-seg",
-            description="2‑D UNet for FIB‑SEM multi‑tiff",
+            name=self.name,
+            description="2-D UNet for FIB-SEM multi-tiff",
             version="0.1.0",
-            labels=["background", "cell_wall", #"tannin_cell"
-                    ],
+            labels=["background", "cell_wall"],
         )
 
-    # ---------------------------------------------------------------------
-    # tasks
-    # ---------------------------------------------------------------------
-    def init_infers(self) -> dict[str, InferTask]:
+    def init_infers(self) -> Dict[str, InferTask]:
         return {
             "tc-fibsem-seg": FibsemSegInfer(
                 studies=self.studies,
-                model_dir=os.path.join(self.app_dir, "model", "tc-fibsem-seg"),
-                roi_size=(256, 256),  # 必要なら変更
+                model_dir=self.model_dir,
+                roi_size=(256, 256),
             )
         }
 

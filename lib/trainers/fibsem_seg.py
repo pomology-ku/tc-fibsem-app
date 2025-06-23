@@ -32,8 +32,10 @@ from monailabel.interfaces.datastore import Datastore
 from monailabel.interfaces.tasks.train import TrainTask         # ← MONAI-Label 抽象基底
 from monai.inferers import sliding_window_inference
 from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd, StackNeighborSlicesd
-
 from monai.utils import set_determinism
+
+import segmentation_models_pytorch as smp 
+
 set_determinism(seed=42)
 
 logger = logging.getLogger(__name__)
@@ -70,9 +72,9 @@ class FibsemSegTrain(TrainTask):
         max_epochs   = int(request.get("max_epochs", 100))
         batch_size   = int(request.get("train_batch_size", 8))
         num_workers  = int(request.get("num_workers", 4))
-        lr           = float(request.get("learning_rate", 1e-3))
+        lr           = float(request.get("learning_rate", 1e-4))
         val_split    = float(request.get("val_split", 0.2))
-        device       = torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
+        device       = device = torch.device("cuda:0") #torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
         logger.info(f">>> TRAIN   on {device};  epochs={max_epochs};  batch={batch_size};  val_split={val_split}")
 
@@ -186,14 +188,25 @@ class FibsemSegTrain(TrainTask):
                                   shuffle=False, num_workers=num_workers, pin_memory=torch.cuda.is_available(), collate_fn=pad_list_data_collate)
 
         # ---------------- Network / Loss / Optimizer ---------------- #
-        net = UNet(
-            spatial_dims=2,
-            in_channels=self.in_channels,
-            out_channels=self.out_channels,
-            channels=(16, 32, 64, 128, 256),
-            strides=(2, 2, 2, 2),
-            num_res_units=2,
-        ).to(device)
+        # net = UNet(
+        #     spatial_dims=2,
+        #     in_channels=self.in_channels,
+        #     out_channels=self.out_channels,
+        #     channels=(16, 32, 64, 128, 256),
+        #     strides=(2, 2, 2, 2),
+        #     num_res_units=2,
+        # ).to(device)
+
+        net = smp.Unet(
+            encoder_name="resnet18",      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
+            encoder_weights="imagenet",   # 'imagenet' を指定して事前学習済みの重みをロード
+            in_channels=self.in_channels,   # 現在のコード通り 3 (2.5D入力)
+            classes=self.out_channels,      # 現在のコード通り 2
+        )
+        net.out_channels = self.out_channels  # ← UNet の出力チャンネル数を設定
+        for p in net.encoder.parameters():
+            p.requires_grad = False        # エンコーダーは固定（転移学習）
+        net.to(device)
 
         dice = DiceLoss(include_background=True, to_onehot_y=True, softmax=True)
         
