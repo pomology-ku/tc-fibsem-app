@@ -26,8 +26,11 @@ from monai.transforms import (
     LoadImaged,
     ScaleIntensityd,
     EnsureTyped,
+    Activations, AsDiscrete,
+    KeepLargestConnectedComponent, RemoveSmallObjects,
 )
 import SimpleITK as sitk
+from tqdm.auto import tqdm 
 
 from monailabel.interfaces.tasks.infer_v2 import InferTask, InferType
 import logging
@@ -55,7 +58,8 @@ class FibsemSegInfer(InferTask):
             type=InferType.SEGMENTATION,
             dimension=2,
             description="FIB-SEM slice-wise 2D-UNet",
-            labels={"background": 0, "cell_wall": 1, "tannin_cell": 2},
+            labels={"background": 0, "cell_wall": 1, "tannin_cell": 2
+                    },
         )
         self.studies = studies
         self.id = "tc-fibsem-seg"   
@@ -72,7 +76,7 @@ class FibsemSegInfer(InferTask):
         self.network = UNet(
             spatial_dims=2,
             in_channels=3, # 2.5D
-            out_channels=3,
+            out_channels=3,#3,
             channels=(16, 32, 64, 128, 256),
             strides=(2, 2, 2, 2),
             num_res_units=2,
@@ -96,6 +100,23 @@ class FibsemSegInfer(InferTask):
             ]
         )
 
+        # --------- 3 クラス共通ポスト処理 ---------
+        self.post_tf = Compose([
+            Activations(softmax=True, dim=1),       # (B,C,H,W) → 確率
+            AsDiscrete(argmax=True, dim=1, keepdim=False),         # (B,H,W)   → 整数ラベル 0/1/2
+            KeepLargestConnectedComponent(   # クラス1・2の最大成分のみ残す
+                applied_labels=[1, 2],
+                independent=True,
+                connectivity=2,
+                num_components=1,
+            ),
+            RemoveSmallObjects(
+                min_size=20,                 # 20pixel 未満を除去
+                connectivity=2,
+            ),
+        ])
+        
+
     # ------------------------------------------------------------------ #
     def __call__(self, data: Dict[str, Any], *args, **kwargs) -> Dict[str, Any]:
         img_path = Path(data["image"]) 
@@ -104,6 +125,8 @@ class FibsemSegInfer(InferTask):
         vol = tiff.imread(img_path)
         if vol.ndim == 3 and vol.shape[0] == 1:      # 1-slice の例外
             vol = vol[0]
+
+        logger.info(f"[DEBUG] input volume shape (Z,H,W): {vol.shape}")
 
         target_z = list(range(vol.shape[0]))
         Z, H, W = vol.shape
@@ -120,15 +143,38 @@ class FibsemSegInfer(InferTask):
         # ④ 推論ループ
         pred_vol = np.zeros(vol.shape, dtype=np.uint8)      # (Z,Y,X)
         with torch.no_grad():
-            for batch in loader:
+            for batch in tqdm(loader, total=len(loader), desc="Infer (slices)"):
                 z = int(batch["z"])
-                img = batch["image"].to(self.device)        # (1,1,H,W)
+                img = batch["image"].to(self.device) 
+
+                if z < 10:
+                    logger.info(f"[DEBUG] batch image shape : {img.shape}  (z={z})")
+
                 logits = sliding_window_inference(
                     img, roi_size=self.roi_size,
                     sw_batch_size=4, predictor=self.network, overlap=self.overlap
                 )
-                pred = torch.argmax(logits, dim=1)[0].cpu().numpy().astype(np.uint8)
-                pred_vol[z] = pred                          # Z へ書き戻し
+
+                if z < 10:
+                    logger.info(f"[DEBUG] logits shape       : {logits.shape}")
+
+                pred = self.post_tf(logits)
+                pred = pred.squeeze(0).cpu().numpy().astype(np.uint8)
+
+                # pred = torch.argmax(logits, dim=1)[0].cpu().numpy().astype(np.uint8)
+                
+                if z < 10:  # ← 詳細デバッグは z=0…9 のみ
+                    logger.info(
+                        f"[DEBUG] z={z:03d} | "
+                        f"img:{tuple(img.shape)} "
+                        f"logits:{tuple(logits.shape)} "
+                        f"pred.shape:{pred.shape} "
+                        f"unique:{np.unique(pred)}"
+                    )
+                
+                pred_vol[z] = pred
+
+        logger.info(f"Unique labels in pred_vol: {np.unique(pred_vol)}")    # Z へ書き戻し
         
         out_file = Path(self.studies) / f"{img_path.stem}_pred.nrrd"
         logger.info(f"[FibsemSegInfer] saving prediction to {out_file}")
