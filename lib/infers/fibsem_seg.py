@@ -58,7 +58,7 @@ class FibsemSegInfer(InferTask):
             type=InferType.SEGMENTATION,
             dimension=2,
             description="FIB-SEM slice-wise 2D-UNet",
-            labels={"background": 0, "cell_wall": 1, "tannin_cell": 2
+            labels={"background": 0, "cell_wall": 1, #"tannin_cell": 2
                     },
         )
         self.studies = studies
@@ -76,7 +76,7 @@ class FibsemSegInfer(InferTask):
         self.network = UNet(
             spatial_dims=2,
             in_channels=3, # 2.5D
-            out_channels=3,#3,
+            out_channels=len(self.labels),
             channels=(16, 32, 64, 128, 256),
             strides=(2, 2, 2, 2),
             num_res_units=2,
@@ -105,7 +105,7 @@ class FibsemSegInfer(InferTask):
             Activations(softmax=True, dim=1),       # (B,C,H,W) → 確率
             AsDiscrete(argmax=True, dim=1, keepdim=False),         # (B,H,W)   → 整数ラベル 0/1/2
             KeepLargestConnectedComponent(   # クラス1・2の最大成分のみ残す
-                applied_labels=[1, 2],
+                applied_labels=[1,],# 2],
                 independent=True,
                 connectivity=2,
                 num_components=1,
@@ -147,16 +147,10 @@ class FibsemSegInfer(InferTask):
                 z = int(batch["z"])
                 img = batch["image"].to(self.device) 
 
-                if z < 10:
-                    logger.info(f"[DEBUG] batch image shape : {img.shape}  (z={z})")
-
                 logits = sliding_window_inference(
                     img, roi_size=self.roi_size,
                     sw_batch_size=4, predictor=self.network, overlap=self.overlap
                 )
-
-                if z < 10:
-                    logger.info(f"[DEBUG] logits shape       : {logits.shape}")
 
                 pred = self.post_tf(logits)
                 pred = pred.squeeze(0).cpu().numpy().astype(np.uint8)

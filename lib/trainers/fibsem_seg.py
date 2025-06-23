@@ -50,7 +50,7 @@ class FibsemSegTrain(TrainTask):
         app_dir: str,
         description: str = "2D-UNet trainer for tc-fibsem-seg",
         in_channels: int = 3, # 2.5D
-        out_channels: int = 3,
+        out_channels: int = 2,#3,
         spatial_size: Optional[Sequence[int]] = None,
     ):
         super().__init__(description)
@@ -70,7 +70,7 @@ class FibsemSegTrain(TrainTask):
         max_epochs   = int(request.get("max_epochs", 100))
         batch_size   = int(request.get("train_batch_size", 8))
         num_workers  = int(request.get("num_workers", 4))
-        lr           = float(request.get("learning_rate", 3e-4))
+        lr           = float(request.get("learning_rate", 1e-3))
         val_split    = float(request.get("val_split", 0.2))
         device       = torch.device(request.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 

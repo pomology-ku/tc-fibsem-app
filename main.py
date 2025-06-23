@@ -33,7 +33,8 @@ class MyApp(MONAILabelApp):
             name="tc-fibsem-seg",
             description="2‑D UNet for FIB‑SEM multi‑tiff",
             version="0.1.0",
-            labels=["background", "cell_wall", "tannin_cell"],
+            labels=["background", "cell_wall", #"tannin_cell"
+                    ],
         )
 
     # ---------------------------------------------------------------------
