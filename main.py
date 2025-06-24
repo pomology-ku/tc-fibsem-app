@@ -29,8 +29,11 @@ class MyApp(MONAILabelApp):
 
     def __init__(self, app_dir: str, studies: str, conf: Dict[str, str]):
         self.name = "tc-fibsem-seg"
-        self.model_dir = os.path.join(app_dir, "model", self.name)
         self.conf = conf
+
+        backbone = conf.get("encoder", "resnet18")
+        self.name = f"tc-fibsem-seg-{backbone}"
+        self.model_dir = os.path.join(app_dir, "model", self.name)
 
         # モデルがなければこのタイミングで用意しておく
         model_path = os.path.join(self.model_dir, "model.pt")
@@ -73,7 +76,7 @@ class MyApp(MONAILabelApp):
         if self.conf.get("skip_trainers", "false").lower() in ("true", "1"):  # server flag
             return {}
         encoder = self.conf.get("encoder", "resnet18")
-        trainer = FibsemSegTrain(app_dir=self.app_dir, encoder=encoder)
+        trainer = FibsemSegTrain(app_dir=self.app_dir, encoder=encoder, model_dir=self.model_dir)
         LOG.info("+++ Adding Trainer  tc-fibsem-seg  =>  %s", trainer)
         return {"tc-fibsem-seg": trainer}
 

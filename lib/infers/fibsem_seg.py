@@ -134,6 +134,7 @@ class FibsemSegInfer(InferTask):
 
     # ------------------------------------------------------------------ #
     def __call__(self, data: Dict[str, Any], *args, **kwargs) -> Dict[str, Any]:
+        print(f"[FibsemSegInfer] infer called, loading model from: {self.path}")
         img_path = Path(data["image"]) 
 
         # ① TIFF 読み込み (Z,Y,X)

@@ -50,6 +50,7 @@ class FibsemSegTrain(TrainTask):
     def __init__(
         self,
         app_dir: str,
+        model_dir: str, 
         description: str = "2D-UNet trainer for tc-fibsem-seg",
         encoder: str = "resnet18", 
         in_channels: int = 3, # 2.5D
@@ -63,6 +64,7 @@ class FibsemSegTrain(TrainTask):
         self.out_channels = out_channels
         self.spatial_size = spatial_size or [512, 512]
         self.version = "0.1"
+        self.model_dir  = model_dir 
 
     # --------------- 主要 API --------------- #
     def __call__(self, request: Dict[str, Any], datastore: Datastore):
@@ -289,7 +291,7 @@ class FibsemSegTrain(TrainTask):
         )
 
         # ② infer 用ディレクトリへコピー
-        publish_dir = os.path.join(self.app_dir, "model", "tc-fibsem-seg")
+        publish_dir = self.model_dir
         os.makedirs(publish_dir, exist_ok=True)
         dst = os.path.join(publish_dir, "model.pt")          # ← infer 側と同じファイル名に
         shutil.copy2(best_ckpt, dst)
