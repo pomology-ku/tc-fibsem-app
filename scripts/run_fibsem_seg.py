@@ -25,6 +25,11 @@ def main():
         "--conf", "-c", nargs="*", default=[],
         help="Additional key=value pairs for app.conf (e.g. skip_trainers=true)"
     )
+    parser.add_argument("--encoder",
+        type=str,
+        default="resnet18",
+        help="Specify the segmentation-models-pytorch encoder name (e.g. resnet34, resnet50)"
+    )
 
     # サブコマンド機能
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -52,6 +57,7 @@ def main():
         if "=" in kv:
             k, v = kv.split("=", 1)
             conf[k] = v
+    conf["encoder"] = args.encoder
     # アプリ／Datastore 初期化
     app = MyApp(args.app_dir, args.studies, conf)
     datastore = LocalDatastore(args.studies, 
@@ -72,6 +78,7 @@ def main():
             "learning_rate": args.learning_rate,
             "val_split": args.val_split,
             "device": args.device,
+            "encoder": args.encoder,
         }
         result = trainer(req, datastore)
         print("Training result:", result)

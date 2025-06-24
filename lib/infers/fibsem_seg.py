@@ -56,6 +56,7 @@ class FibsemSegInfer(InferTask):
         roi_size: tuple[int, int] = (256, 256),
         overlap: float = 0.25,
         ckpt_name: str = "model.pt",
+        encoder: str = "resnet18",
     ):
         super().__init__(
             type=InferType.SEGMENTATION,
@@ -67,12 +68,14 @@ class FibsemSegInfer(InferTask):
         self.studies = studies
         self.id = "tc-fibsem-seg"   
 
-        self.device   = torch.device(device)
+        self.device = torch.device(device)
         self.roi_size = roi_size
         self.overlap  = overlap
 
         self.in_channels = 3    # 2.5D入力 (3-slice stack)
         self.out_channels = len(self.labels) 
+
+        self.encoder = encoder
 
         # ---------- 重みファイル ----------
         ckpt_path = os.path.join(model_dir, ckpt_name)
@@ -88,7 +91,7 @@ class FibsemSegInfer(InferTask):
         #     num_res_units=2,
         # )
         self.network = smp.Unet(
-            encoder_name="resnet18",      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
+            encoder_name=self.encoder,      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
             encoder_weights="imagenet",   # 'imagenet' を指定して事前学習済みの重みをロード
             in_channels=self.in_channels,   
             classes=self.out_channels,  

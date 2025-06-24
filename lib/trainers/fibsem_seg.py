@@ -51,12 +51,14 @@ class FibsemSegTrain(TrainTask):
         self,
         app_dir: str,
         description: str = "2D-UNet trainer for tc-fibsem-seg",
+        encoder: str = "resnet18", 
         in_channels: int = 3, # 2.5D
         out_channels: int = 2,#3,
         spatial_size: Optional[Sequence[int]] = None,
     ):
         super().__init__(description)
         self.app_dir = app_dir
+        self.encoder = encoder 
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.spatial_size = spatial_size or [512, 512]
@@ -111,7 +113,7 @@ class FibsemSegTrain(TrainTask):
                 label_key="label",
                 spatial_size=(256, 256),
                 pos=1, neg=1,           
-                num_samples=32,
+                num_samples=64,
             ),
 
             # SaveImaged(
@@ -196,9 +198,10 @@ class FibsemSegTrain(TrainTask):
         #     strides=(2, 2, 2, 2),
         #     num_res_units=2,
         # ).to(device)
+        backbone = request.get("encoder", self.encoder)
 
         net = smp.Unet(
-            encoder_name="resnet18",      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
+            encoder_name=backbone,      # バックボーンを選択 (例: "efficientnet-b4", "resnext50_32x4d")
             encoder_weights="imagenet",   # 'imagenet' を指定して事前学習済みの重みをロード
             in_channels=self.in_channels,   # 現在のコード通り 3 (2.5D入力)
             classes=self.out_channels,      # 現在のコード通り 2
