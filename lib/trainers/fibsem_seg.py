@@ -22,7 +22,7 @@ from monai.transforms import (
     SaveImaged, SpatialPadd,
 )
 from monai.networks.nets import UNet
-from monai.losses import DiceLoss, HausdorffDTLoss
+from monai.losses import DiceLoss, DiceCELoss
 from monai.engines import SupervisedTrainer, SupervisedEvaluator
 from monai.handlers import (
     StatsHandler, CheckpointSaver, ValidationHandler, LrScheduleHandler, MeanDice, from_engine
@@ -35,6 +35,7 @@ from scripts.fibsem_transforms import ExtractValidSlicesd, SelectSliceByKeyd, St
 from monai.utils import set_determinism
 
 import segmentation_models_pytorch as smp 
+from torch.optim.lr_scheduler import OneCycleLR
 
 set_determinism(seed=42)
 
@@ -213,9 +214,20 @@ class FibsemSegTrain(TrainTask):
             p.requires_grad = False        # エンコーダーは固定（転移学習）
         net.to(device)
 
-        dice = DiceLoss(include_background=True, to_onehot_y=True, softmax=True)
+        # loss = DiceLoss(include_background=True, to_onehot_y=True, softmax=True)
+        loss = DiceCELoss(
+            include_background=False,  # 背景を計算に含めない
+            to_onehot_y=True,          # ターゲットをワンホットに変換
+            softmax=True,              # ネットワーク出力に softmax を適用（Dice 部分用）
+            lambda_dice=1.0,           # Dice loss の重み
+            lambda_ce=1.0,             # CE loss の重み
+            label_smoothing=0.0        # ラベル平滑化（オプション）
+        )
         
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+        scheduler = OneCycleLR(optimizer, max_lr=1e-3,
+                      steps_per_epoch=len(train_loader),
+                      epochs=max_epochs)
 
         # ---------------- Inferer / Post ---------------- #
         post_trans = Compose([
@@ -253,7 +265,7 @@ class FibsemSegTrain(TrainTask):
             device=device,
             train_data_loader=train_loader,
             network=net,
-            loss_function=dice,
+            loss_function=loss,
             optimizer=optimizer,
         )
 
@@ -270,7 +282,17 @@ class FibsemSegTrain(TrainTask):
                 else None
             ),
         ).attach(trainer)
-        LrScheduleHandler(torch.optim.lr_scheduler.StepLR(optimizer, 10, 0.1)).attach(trainer)
+        #LrScheduleHandler(torch.optim.lr_scheduler.StepLR(optimizer, 10, 0.1)).attach(trainer)
+        scheduler = OneCycleLR(
+            optimizer,
+            max_lr=1e-3,
+            steps_per_epoch=len(train_loader),
+            epochs=max_epochs,
+        )
+        trainer.add_event_handler(
+            Events.ITERATION_COMPLETED,
+            LrScheduleHandler(scheduler, epoch_level=False),  # イテレーションごとにステップ
+        )
         CheckpointSaver(
             save_dir=os.path.join(self.app_dir, "model_checkpoints"),
             save_dict={"model": net},

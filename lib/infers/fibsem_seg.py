@@ -119,12 +119,12 @@ class FibsemSegInfer(InferTask):
         self.post_tf = Compose([
             Activations(softmax=True, dim=1),       # (B,C,H,W) → 確率
             AsDiscrete(argmax=True, dim=1, keepdim=False),         # (B,H,W)   → 整数ラベル 0/1/2
-            KeepLargestConnectedComponent(   # クラス1・2の最大成分のみ残す
-                applied_labels=[1,],# 2],
-                independent=True,
-                connectivity=2,
-                num_components=1,
-            ),
+            # KeepLargestConnectedComponent(   # クラス1・2の最大成分のみ残す
+            #     applied_labels=[1,],# 2],
+            #     independent=True,
+            #     connectivity=2,
+            #     num_components=1,
+            # ),
             RemoveSmallObjects(
                 min_size=20,                 # 20pixel 未満を除去
                 connectivity=2,
