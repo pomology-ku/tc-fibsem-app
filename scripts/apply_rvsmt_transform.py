@@ -109,7 +109,7 @@ def main(args):
         M_fwd = T_offset @ M_list[z]
         M_cv  = M_fwd[:2].astype(np.float32)
 
-        print(arr[z].sum(), f"before warping slice {z+1}")
+        # print(arr[z].sum(), f"before warping slice {z+1}")
         reg_arr[z] = cv2.warpAffine(
             arr[z].astype(np.uint8),
             M_cv,
@@ -117,7 +117,7 @@ def main(args):
             flags=cv2.INTER_NEAREST,
             borderValue=0
         )
-        print(reg_arr[z].sum(), f"after warping slice {z+1}")
+        # print(reg_arr[z].sum(), f"after warping slice {z+1}")
 
     out_img = sitk.GetImageFromArray(reg_arr)
     out_img = sitk.GetImageFromArray(reg_arr)
