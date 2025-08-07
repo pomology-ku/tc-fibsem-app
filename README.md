@@ -21,6 +21,12 @@ A lightweight extension of the [MONAI Bundle App](https://github.com/Project-MON
 - **Interactive mode** through MONAI Label + 3D Slicer for annotation and inference.
 - **Headless CLI** for repeatable training / inference on any server.
 
+## Citation
+
+> **Developmental dynamics of cellular specialization during proanthocyanidin accumulation in persimmon fruit**  
+> *Yosuke Fujiwara, Soichiro Nishiyama, Akane Kusumi, Keiko Okamoto-Furuta, Hisayo Yamane1, Keizo Yonemori and Ryutaro Tao*  
+> *in preparation*
+
 ## Pre-requisites
 
 ```bash
@@ -106,3 +112,22 @@ Install **3D Slicer** (≥ 5.6) and enable the **MONAI Label** extension.
 6. Choose **Train** or **Infer** from the same panel as needed.
 
 > If UI actions fail (the code has evolved since early tests), please fall back to the CLI workflow described above.
+
+## Pretrained Models
+
+Trained checkpoint for this project (from efficientnet-b4) can be downloaded from Google Drive and unpack it so the folder structure becomes:
+
+```
+tc-fibsem-app/
+  models/
+    tc-fibsem-seg-efficientnet-b4/
+      model.pt
+```
+
+### Quick Download & Unzip
+```bash
+# Requires gdown →  pip install gdown
+gdown https://drive.google.com/uc?id=1yj3FG3aoDF1SfGMpoPYDOrUS0QB-Xnr2 -O model.zip
+unzip model.zip -d tc-fibsem-app/
+```
+
