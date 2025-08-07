@@ -18,13 +18,12 @@ A lightweight extension of the [MONAI Bundle App](https://github.com/Project-MON
 ## Key Features
 
 - **2.5‑D training pipeline** built on `segmentation_models_pytorch` with optional ImageNet‑pretrained encoders.
-- **Interactive mode** through MONAI Label + 3D Slicer for annotation and inference.
 - **Headless CLI** for repeatable training / inference on any server.
 
 ## Citation
 
 > **Developmental dynamics of cellular specialization during proanthocyanidin accumulation in persimmon fruit**  
-> *Yosuke Fujiwara, Soichiro Nishiyama, Akane Kusumi, Keiko Okamoto-Furuta, Hisayo Yamane1, Keizo Yonemori and Ryutaro Tao*  
+> *Yosuke Fujiwara, Soichiro Nishiyama, Akane Kusumi, Keiko Okamoto-Furuta, Hisayo Yamane, Keizo Yonemori and Ryutaro Tao*  
 > *in preparation*
 
 ## Pre-requisites
@@ -96,7 +95,7 @@ python tc-fibsem-app/scripts/run_fibsem_seg.py \
 pip install monailabel
 ```
 
-Install **3D Slicer** (≥ 5.6) and enable the **MONAI Label** extension.
+Install **3D Slicer** and enable the **MONAI Label** extension.
 
 ### Typical Steps
 
