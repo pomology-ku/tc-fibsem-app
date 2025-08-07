@@ -20,65 +20,75 @@ LOG = logging.getLogger(__name__)
 
 
 class MyApp(MONAILabelApp):
-    """Minimal MONAI Label App for FIB‑SEM segmentation.
+    """MONAI Label App for FIB‑SEM segmentation.
 
-    * 1 × multi‑tiff  ➜ 2‑D slices
-    * 3‑class UNet (background / cell_wall / tannin_cell)
-    * Training & inference defined in ``lib/``
+    * 1 × multi‑tiff  ➜ 2‑D slices
+    * Training & inference are defined in ``lib/``.
     """
 
+    DEFAULT_LABELS = ["cell_wall"]
+
+    # -------------------------------------------------
+    #  Constructor
+    # -------------------------------------------------
     def __init__(self, app_dir: str, studies: str, conf: Dict[str, str]):
-        self.name = "tc-fibsem-seg"
         self.conf = conf
+        encoder = conf.get("encoder", "resnet18")
+        self.name = f"tc-fibsem-seg-{encoder}"
 
-        backbone = conf.get("encoder", "resnet18")
-        self.name = f"tc-fibsem-seg-{backbone}"
+        self.app_dir = app_dir
+        self.studies = studies
         self.model_dir = os.path.join(app_dir, "model", self.name)
+        os.makedirs(self.model_dir, exist_ok=True)
 
-        # モデルがなければこのタイミングで用意しておく
+        # Ensure pre‑trained weights exist ----------------------------------
         model_path = os.path.join(self.model_dir, "model.pt")
         if not os.path.exists(model_path):
-            LOG.info(f"Model not found at '{model_path}', creating a new one.")
-            os.makedirs(self.model_dir, exist_ok=True)
-            backbone = conf.get("encoder", "resnet18")
-            pretrained_model = smp.Unet(
-                encoder_name=backbone,
+            LOG.info("Model not found – exporting ImageNet‑pretrained UNet backbone to %s", model_path)
+            net = smp.Unet(
+                encoder_name=encoder,
                 encoder_weights="imagenet",
                 in_channels=3,
-                classes=2,
+                classes=len(self.DEFAULT_LABELS),
             )
-            torch.save(pretrained_model.state_dict(), model_path)
-            LOG.info(f"Saved initial pretrained model to '{model_path}'")
+            torch.save(net.state_dict(), model_path)
 
-        # ———— その後で親クラス初期化 ————
+        # Parent class init -------------------------------------------------
         super().__init__(
             app_dir=app_dir,
             studies=studies,
             conf=conf,
             name=self.name,
-            description="2-D UNet for FIB-SEM multi-tiff",
-            version="0.1.0",
-            labels=["background", "cell_wall"],
+            description="2.5‑D UNet for FIB‑SEM multi‑tiff segmentation",
+            version="0.2.0",
+            labels=self.DEFAULT_LABELS,
         )
 
+    # -------------------------------------------------
+    #  Tasks
+    # -------------------------------------------------
     def init_infers(self) -> Dict[str, InferTask]:
-        encoder = self.conf.get("encoder", "resnet18")
+        roi = tuple(map(int, self.conf.get("roi_size", "256,256").split(",")))
         return {
-            "tc-fibsem-seg": FibsemSegInfer(
+            self.name: FibsemSegInfer(
                 studies=self.studies,
                 model_dir=self.model_dir,
-                encoder=encoder,
-                roi_size=(256, 256),
+                encoder=self.conf.get("encoder", "resnet18"),
+                roi_size=roi,
+                device=self.conf.get("device", "cuda"),
             )
         }
 
     def init_trainers(self) -> Dict[str, TrainTask]:
-        if self.conf.get("skip_trainers", "false").lower() in ("true", "1"):  # server flag
+        if self.conf.get("skip_trainers", "false").lower() in ("true", "1"):
             return {}
-        encoder = self.conf.get("encoder", "resnet18")
-        trainer = FibsemSegTrain(app_dir=self.app_dir, encoder=encoder, model_dir=self.model_dir)
-        LOG.info("+++ Adding Trainer  tc-fibsem-seg  =>  %s", trainer)
-        return {"tc-fibsem-seg": trainer}
+        trainer = FibsemSegTrain(
+            app_dir=self.app_dir,
+            model_dir=self.model_dir,
+            encoder=self.conf.get("encoder", "resnet18"),
+        )
+        LOG.info("+++ Adding Trainer  %s", trainer)
+        return {self.name: trainer}
 
     def init_strategies(self):
         return {
