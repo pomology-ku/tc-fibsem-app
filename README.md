@@ -22,9 +22,9 @@ A lightweight extension of the [MONAI Bundle App](https://github.com/Project-MON
 
 ## Citation
 
-> **Developmental dynamics of cellular specialization during proanthocyanidin accumulation in persimmon fruit**  
-> *Yosuke Fujiwara, Soichiro Nishiyama, Akane Kusumi, Keiko Okamoto-Furuta, Hisayo Yamane, Keizo Yonemori and Ryutaro Tao*  
-> *in preparation*
+**Developmental dynamics of cellular specialization during proanthocyanidin accumulation in persimmon fruit**  
+*Yosuke Fujiwara, Soichiro Nishiyama, Akane Kusumi, Keiko Okamoto-Furuta, Hisayo Yamane, Keizo Yonemori and Ryutaro Tao*  
+*Plant Physiology, 2026, 200: kiaf645, https://doi.org/10.1093/plphys/kiaf645*
 
 ## Pre-requisites
 
